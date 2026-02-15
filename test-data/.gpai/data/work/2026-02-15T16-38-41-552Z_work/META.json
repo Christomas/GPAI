@@ -1,0 +1,12 @@
+{
+  "id": "2026-02-15T16-38-41-552Z",
+  "prompt": "Analyze the security of this code",
+  "intent": "security",
+  "createdAt": "2026-02-15T16:38:41.552Z",
+  "status": "in-progress",
+  "agents": [
+    "analyst",
+    "devil",
+    "engineer"
+  ]
+}

@@ -1,0 +1,37 @@
+security:
+  blocked:
+    bash:
+      - 'rm -rf /'
+      - 'dd if=/dev/zero'
+      - 'format'
+      - 'mkfs'
+    paths:
+      - '~/.ssh/*'
+      - '~/.aws/credentials'
+      - '/etc/passwd'
+      - '/etc/shadow'
+
+  confirm:
+    bash:
+      - 'git push --force'
+      - 'rm -rf'
+      - 'sudo'
+      - 'chown'
+    paths:
+      - '~/.*'
+      - '/etc/*'
+      - '$HOME/.gpai/data/*'
+
+  alert:
+    bash:
+      - 'curl'
+      - 'wget'
+      - 'ssh'
+    paths:
+      - '/root/*'
+
+logging:
+  enabled: true
+  level: 'info'
+  dir: '~/.gpai/data/logs'
+  retention_days: 30

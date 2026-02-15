@@ -1,0 +1,14 @@
+{
+  "user": {
+    "name": "Test User",
+    "aiName": "Kai"
+  },
+  "mission": "Test mission",
+  "goals": ["Goal A", "Goal B"],
+  "preferences": {
+    "communicationStyle": "direct",
+    "preferredAgents": ["engineer", "analyst"],
+    "councilMode": true,
+    "learningEnabled": true
+  }
+}

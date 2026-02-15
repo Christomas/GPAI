@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "name": "gpai-session-start",
+            "type": "command",
+            "command": "node ${extensionPath}${/}dist${/}hooks${/}runner.js SessionStart"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "name": "gpai-before-agent",
+            "type": "command",
+            "command": "node ${extensionPath}${/}dist${/}hooks${/}runner.js BeforeAgent"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "hooks": [
+          {
+            "name": "gpai-before-tool",
+            "type": "command",
+            "command": "node ${extensionPath}${/}dist${/}hooks${/}runner.js BeforeTool"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "hooks": [
+          {
+            "name": "gpai-after-tool",
+            "type": "command",
+            "command": "node ${extensionPath}${/}dist${/}hooks${/}runner.js AfterTool"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "name": "gpai-after-agent",
+            "type": "command",
+            "command": "node ${extensionPath}${/}dist${/}hooks${/}runner.js AfterAgent"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "hooks": [
+          {
+            "name": "gpai-pre-compress",
+            "type": "command",
+            "command": "node ${extensionPath}${/}dist${/}hooks${/}runner.js PreCompress"
+          }
+        ]
+      }
+    ]
+  }
+}

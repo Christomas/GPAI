@@ -1,0 +1,6 @@
+{"action":"allow","tool":"shell","args":{"command":"ls -la"},"timestamp":"2026-02-15T16:16:19.014Z"}
+{"action":"allow","tool":"shell","args":{"command":"ls -la"},"timestamp":"2026-02-15T16:17:14.890Z"}
+{"action":"allow","tool":"shell","args":{"command":"ls -la"},"timestamp":"2026-02-15T16:28:27.885Z"}
+{"action":"allow","tool":"shell","args":{"command":"ls -la"},"timestamp":"2026-02-15T16:32:38.382Z"}
+{"action":"allow","tool":"shell","args":{"command":"ls -la"},"timestamp":"2026-02-15T16:38:09.739Z"}
+{"action":"allow","tool":"shell","args":{"command":"ls -la"},"timestamp":"2026-02-15T16:38:41.553Z"}

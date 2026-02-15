@@ -9,3 +9,5 @@ npm-debug.log
 .env.production.local
 coverage/
 *.log
+dist/
+*.tsbuildinfo

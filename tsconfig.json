@@ -1,1 +1,27 @@
-{\n  "compilerOptions": {\n    "target": "es5",\n    "module": "commonjs",\n    "strict": true,\n    "esModuleInterop": true,\n    "skipLibCheck": true,\n    "forceConsistentCasingInFileNames": true\n  },\n  "include": [\n    "src/**/*"\n  ],\n  "exclude": [\n    "node_modules"\n  ]\n}
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./extensions/gpai-core/dist",
+    "rootDir": "./extensions/gpai-core",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "moduleResolution": "node"
+  },
+  "include": ["extensions/gpai-core/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "extensions/gpai-core/dist",
+    "**/*.test.ts",
+    "extensions/gpai-core/__tests__/**",
+    "extensions/gpai-core/mcp-servers/**"
+  ]
+}

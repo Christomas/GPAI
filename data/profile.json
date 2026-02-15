@@ -1,0 +1,63 @@
+{
+  "user": {
+    "name": "John Doe",
+    "aiName": "Kai",
+    "email": "john@example.com"
+  },
+  "mission": "构建安全的、可靠的系统，帮助人们实现他们的目标",
+  "goals": [
+    "提高代码安全性",
+    "建立自动化工作流",
+    "学习新的安全技术",
+    "建立知识库"
+  ],
+  "projects": [
+    {
+      "name": "项目A",
+      "description": "安全审计工具",
+      "status": "进行中",
+      "priority": "高"
+    }
+  ],
+  "beliefs": [
+    "安全优先于功能",
+    "自动化减少人为错误",
+    "知识应该共享"
+  ],
+  "models": [
+    "系统安全 = 架构 + 实现 + 运维",
+    "好的工程 = 清晰思考 + 严谨执行 + 持续改进"
+  ],
+  "strategies": [
+    "使用第一性原理分析问题",
+    "多角度(Council)思考重要决策",
+    "自动化重复性工作"
+  ],
+  "learnings": [
+    "OSINT方法很有效",
+    "Council模式产生更好的决策",
+    "自动化脚本省时50%+"
+  ],
+  "preferences": {
+    "communicationStyle": "direct",
+    "detailLevel": "medium",
+    "responseLength": "concise",
+    "preferredAgents": ["engineer", "analyst"],
+    "councilMode": true,
+    "learningEnabled": true
+  },
+  "successPatterns": [
+    {
+      "task": "代码审查",
+      "method": "engineer + devil council",
+      "successRate": 0.92,
+      "lastUsed": "2026-02-10"
+    },
+    {
+      "task": "安全研究",
+      "method": "analyst + devil council",
+      "successRate": 0.88,
+      "lastUsed": "2026-02-08"
+    }
+  ]
+}

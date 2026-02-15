@@ -1,0 +1,16 @@
+security:
+  blocked:
+    bash:
+      - 'rm -rf /'
+    paths:
+      - '/etc/shadow'
+  confirm:
+    bash:
+      - 'sudo'
+    paths:
+      - '/etc/*'
+  alert:
+    bash:
+      - 'curl'
+    paths:
+      - '/root/*'

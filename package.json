@@ -1,1 +1,36 @@
-{"name": "GPAI", "version": "1.0.0", "description": "A project for GPAI", "main": "index.js", "scripts": {"test": "echo 'Error: no test specified' && exit 1"}, "repository": {"type": "git", "url": "https://github.com/Christomas/GPAI.git"}, "author": "Christomas", "license": "ISC"}
+{
+  "name": "gpai",
+  "version": "1.0.0",
+  "description": "Gemini Personal AI Infrastructure - Memory + Multi-Agent System",
+  "main": "extensions/gpai-core/dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:integration": "bash scripts/test-integration.sh",
+    "install-extension": "npm run build && (gemini extensions uninstall gpai-core >/dev/null 2>&1 || true) && gemini extensions install ./extensions/gpai-core",
+    "setup": "bash scripts/install.sh",
+    "init": "bash scripts/init.sh",
+    "clean": "rm -rf dist extensions/gpai-core/dist",
+    "format": "prettier --write \"**/*.ts\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.0.0",
+    "yaml": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "prettier": "^3.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Your Name",
+  "license": "MIT"
+}
