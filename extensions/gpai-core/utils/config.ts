@@ -21,7 +21,18 @@ export interface PromptsConfig {
     prompt: string
     temperature: number
   }
+  output_contract?: {
+    language?: string
+    first_visible_char?: string
+  }
   [key: string]: any
+}
+
+export type OutputLanguage = 'chinese' | 'english' | 'any'
+
+export interface OutputContractConfig {
+  language: OutputLanguage
+  firstVisibleChar: string
 }
 
 export interface AppConfig {
@@ -128,6 +139,10 @@ const defaultConfig: AppConfig = {
       prompt:
         'Analyze user request and return JSON: {"intent":"analysis|creative|technical|research|strategy|security","confidence":0-1,"keywords":[]}\\n\\nUser request: {prompt}',
       temperature: 0.3
+    },
+    output_contract: {
+      language: 'chinese',
+      first_visible_char: '🗣️'
     }
   },
   patterns: {
@@ -208,4 +223,37 @@ export function resolveConfigPath(relativePath: string): string {
   }
 
   return path.join(process.cwd(), relativePath)
+}
+
+function normalizeOutputLanguage(input: unknown): OutputLanguage {
+  if (typeof input !== 'string') {
+    return 'chinese'
+  }
+
+  const normalized = input.trim().toLowerCase()
+  if (normalized === 'chinese' || normalized === 'english' || normalized === 'any') {
+    return normalized
+  }
+
+  if (normalized === 'zh' || normalized === 'zh-cn' || normalized === 'cn') {
+    return 'chinese'
+  }
+  if (normalized === 'en' || normalized === 'en-us' || normalized === 'en-gb') {
+    return 'english'
+  }
+
+  return 'chinese'
+}
+
+export function resolveOutputContract(prompts: PromptsConfig | undefined): OutputContractConfig {
+  const firstVisibleChar =
+    typeof prompts?.output_contract?.first_visible_char === 'string' &&
+    prompts.output_contract.first_visible_char.trim().length > 0
+      ? prompts.output_contract.first_visible_char.trim()
+      : '🗣️'
+
+  return {
+    language: normalizeOutputLanguage(prompts?.output_contract?.language),
+    firstVisibleChar
+  }
 }

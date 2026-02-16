@@ -32,6 +32,7 @@ GPAI/
 │       │   ├── PreCompress.ts
 │       │   ├── runner.ts
 │       │   └── index.ts
+│       ├── index.ts                       ← MCP stdio 入口（gpai_health/gpai_run_hook/gpai_auto_pipeline）
 │       ├── 📁 dist/                       ← 编译产物（Hook运行入口）
 │       ├── 📁 mcp-servers/                ← MCP服务（可选）
 │       │   ├── 📁 memory-server/
@@ -73,10 +74,13 @@ GPAI/
 │   ├── install.sh                        ← 安装脚本
 │   ├── init.sh                           ← 初始化向导
 │   ├── build.sh                          ← 编译脚本
-│   └── setup-mcp.sh                      ← MCP设置
+│   ├── setup-mcp.sh                      ← MCP设置
+│   ├── setup.sh                          ← 一键安装
+│   └── test-integration.sh               ← 集成测试
 │
 ├── .env.example                          ← 环境变量示例
 ├── .gitignore
+├── .cursorrules                          ← Antigravity 项目级提示词（两阶段自动调用）
 ├── package.json                          ← 项目依赖
 ├── tsconfig.json                         ← TypeScript配置
 ├── README.md                             ← 文档
@@ -117,6 +121,8 @@ GPAI/
 
 - install 本地拷贝模式可用（`type: local`），不依赖开发目录 link。
 - 单测与集成测试脚本可运行，且兼容 Gemini CLI 子命令缺失场景（按能力跳过并告警）。
+- MCP 入口已可用于 Antigravity：`gpai_health`、`gpai_run_hook`、`gpai_auto_pipeline`。
+- `gpai_auto_pipeline` 支持阶段开关（`runSessionStart/runBeforeAgent/runToolStages/runAfterAgent/runPreCompress`）以便做前后置两阶段工作流。
 
 ---
 
@@ -225,6 +231,31 @@ npm run test:integration
 tail -n 50 ~/.gpai/data/logs/hooks-$(date +%F).jsonl
 ```
 
+### **步骤6（可选）：接入 Antigravity MCP**
+
+`mcp_config.json` 示例：
+
+```json
+{
+  "mcpServers": {
+    "GPAI": {
+      "command": "node",
+      "args": [
+        "/Users/<YOUR_USER>/.gemini/extensions/gpai-core/dist/index.js"
+      ]
+    }
+  }
+}
+```
+
+说明：请使用绝对路径；多数 MCP 宿主不会在 `args` 中展开 `$HOME` 或 `~`。
+
+工作流放置建议：
+- 优先让 Antigravity 读取项目根目录 `.cursorrules`（最简、项目级）。
+- 备选：放在 Antigravity `Customizations -> Workflows`（推荐 `Workspace` 级）。
+- 不建议放在 `Rules`（你的环境中可能与 Gemini CLI 共享规则，容易互相污染）。
+- 工作流内容可直接使用 `README.md` 的 `Antigravity Workflow Rule (Copy/Paste)`。
+
 ---
 
 ## 配置说明
@@ -237,77 +268,28 @@ tail -n 50 ~/.gpai/data/logs/hooks-$(date +%F).jsonl
 {
   "user": {
     "name": "John Doe",
-    "aiName": "Kai",
-    "email": "john@example.com"
+    "aiName": "Kai"
   },
-  
-  "mission": "构建安全的、可靠的系统，帮助人们实现他们的目标",
-  
-  "goals": [
-    "提高代码安全性",
-    "建立自动化工作流",
-    "学习新的安全技术",
-    "建立知识库"
-  ],
-  
-  "projects": [
-    {
-      "name": "项目A",
-      "description": "安全审计工具",
-      "status": "进行中",
-      "priority": "高"
-    }
-  ],
-  
-  "beliefs": [
-    "安全优先于功能",
-    "自动化减少人为错误",
-    "知识应该共享"
-  ],
-  
-  "models": [
-    "系统安全 = 架构 + 实现 + 运维",
-    "好的工程 = 清晰思考 + 严谨执行 + 持续改进"
-  ],
-  
-  "strategies": [
-    "使用第一性原理分析问题",
-    "多角度(Council)思考重要决策",
-    "自动化重复性工作"
-  ],
-  
-  "learnings": [
-    "OSINT方法很有效",
-    "Council模式产生更好的决策",
-    "自动化脚本省时50%+"
-  ],
-  
+  "mission": "",
+  "goals": [],
+  "projects": [],
+  "beliefs": [],
+  "models": [],
+  "strategies": [],
+  "learnings": [],
   "preferences": {
     "communicationStyle": "direct",
     "detailLevel": "medium",
     "responseLength": "concise",
-    "preferredAgents": ["engineer", "analyst"],
+    "preferredAgents": [],
     "councilMode": true,
     "learningEnabled": true,
     "timeZone": "Asia/Shanghai"
-  },
-  
-  "successPatterns": [
-    {
-      "task": "代码审查",
-      "method": "engineer + devil council",
-      "successRate": 0.92,
-      "lastUsed": "2026-02-10"
-    },
-    {
-      "task": "安全研究",
-      "method": "analyst + devil council",
-      "successRate": 0.88,
-      "lastUsed": "2026-02-08"
-    }
-  ]
+  }
 }
 ```
+
+说明：这是 `init` 后的基础形态。后续会话会按显式/隐式信号持续补充 `mission/goals/projects/...`，并在运行中写入 `successPatterns`。
 
 ### **2. agents.json - Agent定义**
 
@@ -397,7 +379,7 @@ logging:
   },
   
   "intent_detection": {
-    "prompt": "分析用户的请求，返回JSON格式：\n{\"intent\": \"analysis|creative|technical|research|strategy\", \"confidence\": 0-1, \"keywords\": []}\n\n用户请求：{prompt}",
+    "prompt": "分析用户的请求，返回JSON格式：\n{\"intent\": \"analysis|creative|technical|research|strategy|security\", \"confidence\": 0-1, \"keywords\": []}\n\n用户请求：{prompt}",
     "temperature": 0.3
   },
   
@@ -409,6 +391,11 @@ logging:
   "council_synthesis": {
     "prompt": "你现在是一个综合专家。\n\n以下是各角色的观点：\n{individual_views}\n\n请综合这些观点，给出最优的、经过多角度思考的答案。",
     "temperature": 0.5
+  },
+
+  "output_contract": {
+    "language": "chinese",
+    "first_visible_char": "🗣️"
   }
 }
 ```
@@ -1284,6 +1271,30 @@ tail -n 50 ~/.gpai/data/logs/hooks-$(date +%F).jsonl
 # 统计当天各Hook触发次数
 grep -o '"event":"[^"]*"' ~/.gpai/data/logs/hooks-$(date +%F).jsonl | sort | uniq -c
 ```
+
+#### **7. Antigravity 工作流触发（不污染 Rules）**
+
+```text
+# 推荐优先：直接让 Antigravity 读取项目根目录 .cursorrules（最简）
+# 备选方案：在 Antigravity -> Customizations -> Workflows 新建 Workspace workflow
+# 若使用备选，在会话里输入 // 触发 workflow
+```
+
+说明：
+- `.cursorrules` 更简洁，适合项目级默认行为。
+- `Workflows` 适合手动触发，不会强制污染全局规则。
+- 若你环境里 `Rules` 与 Gemini CLI 共用，请避免把自动流水线策略放进 `Rules`。
+
+#### **8. Antigravity 项目级提示词（.cursorrules）**
+
+```text
+# 本仓库根目录已提供 .cursorrules
+# Antigravity 可将其作为项目级提示词加载（不改全局）
+```
+
+说明：
+- `.cursorrules` 已内置“前置注入 + 后置学习”两阶段最小策略。
+- 该机制与 Gemini CLI Hook、Antigravity Workflow 互补，不互相替代。
 
 ---
 

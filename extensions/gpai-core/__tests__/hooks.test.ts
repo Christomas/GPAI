@@ -72,6 +72,16 @@ describe('GPAI Hooks', () => {
     return JSON.parse(fs.readFileSync(profilePath, 'utf-8')) as Record<string, unknown>
   }
 
+  function readPromptsConfig(): Record<string, unknown> {
+    const promptsPath = path.join(runtimeGpaiDir, 'config/prompts.json')
+    return JSON.parse(fs.readFileSync(promptsPath, 'utf-8')) as Record<string, unknown>
+  }
+
+  function writePromptsConfig(value: Record<string, unknown>): void {
+    const promptsPath = path.join(runtimeGpaiDir, 'config/prompts.json')
+    fs.writeFileSync(promptsPath, JSON.stringify(value, null, 2))
+  }
+
   beforeAll(() => {
     runtimeGpaiDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpai-hooks-'))
     fs.cpSync(fixtureGpaiDir, runtimeGpaiDir, { recursive: true })
@@ -292,7 +302,7 @@ describe('GPAI Hooks', () => {
       const result = await handleAfterAgent({
         sessionId,
         prompt: 'Review this auth middleware',
-        result: 'Found 2 medium risks and 1 low risk.',
+        result: '🗣️发现 2 个 medium 风险和 1 个 low 风险。',
         executionTime: 1240,
         tools_used: ['shell', 'filesystem'],
         model_calls: 3,
@@ -304,7 +314,7 @@ describe('GPAI Hooks', () => {
       const targetMeta = listWorkMetas().find((meta) => meta.sessionId === sessionId)
       expect(targetMeta?.status).toBe('completed')
       expect(targetMeta?.execution?.modelCalls).toBe(3)
-      expect(targetMeta?.resultSummary).toContain('Found 2 medium risks')
+      expect(targetMeta?.resultSummary).toContain('发现 2 个 medium 风险')
 
       const history = readHistory()
       const entry = history.find((item) => item.sessionId === sessionId) as
@@ -317,7 +327,7 @@ describe('GPAI Hooks', () => {
       const afterProfile = readProfile()
       const learnings = Array.isArray(afterProfile.learnings) ? (afterProfile.learnings as string[]) : []
       expect(learnings.length).toBeGreaterThan(beforeLearnings)
-      expect(learnings[learnings.length - 1]).toContain('Found 2 medium risks')
+      expect(learnings[learnings.length - 1]).toContain('发现 2 个 medium 风险')
     })
 
     it('should mark work as failed and append failure history', async () => {
@@ -354,6 +364,79 @@ describe('GPAI Hooks', () => {
       expect(entry).toBeTruthy()
       expect(entry?.status).toBe('failed')
     })
+
+    it('should fail successful task when output contract is violated', async () => {
+      const sessionId = 'after-agent-contract-fail-session'
+
+      await handleBeforeAgent({
+        prompt: 'Summarize this security review',
+        sessionId,
+        conversationHistory: []
+      })
+
+      const result = await handleAfterAgent({
+        sessionId,
+        prompt: 'Summarize this security review',
+        result: '发现 medium 风险，需要修复。',
+        executionTime: 640,
+        tools_used: ['filesystem'],
+        model_calls: 1,
+        success: true
+      })
+
+      expect(result.askForRating).toBe(false)
+      expect(result.message).toContain('Output contract violation')
+
+      const targetMeta = listWorkMetas().find((meta) => meta.sessionId === sessionId)
+      expect(targetMeta?.status).toBe('failed')
+    })
+
+    it('should honor configurable output language and first character', async () => {
+      const originalPrompts = readPromptsConfig()
+      const prompts = {
+        ...originalPrompts,
+        output_contract: {
+          language: 'any',
+          first_visible_char: '#'
+        }
+      }
+
+      try {
+        writePromptsConfig(prompts)
+
+        const sessionId = 'after-agent-contract-configurable-session'
+        await handleBeforeAgent({
+          prompt: 'Summarize this changelog',
+          sessionId,
+          conversationHistory: []
+        })
+
+        const passed = await handleAfterAgent({
+          sessionId,
+          prompt: 'Summarize this changelog',
+          result: '#Release notes v1.2.3 are ready.',
+          executionTime: 500,
+          tools_used: ['filesystem'],
+          model_calls: 1,
+          success: true
+        })
+        expect(passed.askForRating).toBe(true)
+
+        const failed = await handleAfterAgent({
+          sessionId,
+          prompt: 'Summarize this changelog',
+          result: 'Release notes v1.2.3 are ready.',
+          executionTime: 500,
+          tools_used: ['filesystem'],
+          model_calls: 1,
+          success: true
+        })
+        expect(failed.askForRating).toBe(false)
+        expect(failed.message).toContain('Output contract violation')
+      } finally {
+        writePromptsConfig(originalPrompts)
+      }
+    })
   })
 
   describe('Preference Memory', () => {
@@ -369,7 +452,7 @@ describe('GPAI Hooks', () => {
       await handleAfterAgent({
         sessionId: ratingSessionId,
         prompt: 'Research OSINT indicators for this incident',
-        result: 'Produced a useful indicator set.',
+        result: '🗣️已产出可用的 OSINT indicator 集合。',
         executionTime: 980,
         tools_used: ['shell'],
         model_calls: 2,
@@ -411,7 +494,7 @@ describe('GPAI Hooks', () => {
       await handleAfterAgent({
         sessionId,
         prompt: 'Research attack surface for this API',
-        result: 'Initial research completed with key findings.',
+        result: '🗣️初步 research 已完成，并提炼出关键发现。',
         executionTime: 800,
         tools_used: ['shell'],
         model_calls: 1,

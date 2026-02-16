@@ -1,4 +1,5 @@
 import * as path from 'path'
+import { loadConfig, resolveOutputContract } from '../utils/config'
 import { readMemoryEntries, type MemoryEntry } from '../utils/memory'
 import { loadSuccessPatterns, type SuccessPattern } from '../utils/profile'
 import { buildTimeContext, listFocusProjects, loadTelosProfile, type TelosProfile } from '../utils/telos'
@@ -22,6 +23,7 @@ function buildSystemPrompt(profile: TelosProfile): string {
   const beliefs = profile.beliefs.slice(0, 2).join('; ') || 'Safety over speed'
   const strategies = profile.strategies.slice(0, 2).join('; ') || 'Break tasks into verifiable steps'
   const timeContext = buildTimeContext(profile.preferences.timeZone)
+  const outputContract = resolveOutputContract(loadConfig().prompts)
   return `You are an intelligent AI assistant helping the user achieve their goals.
 
 User Profile:
@@ -40,7 +42,9 @@ Instructions:
 4. At the end of each task, ask the user for feedback (1-10 score)
 5. Learn from user feedback and improve your approach
 6. If the user prefers certain agents, use them by default
-7. Use high-rated historical patterns when they fit the current task`
+7. Use high-rated historical patterns when they fit the current task
+8. Output Contract (highest priority): respond in ${outputContract.language}, and the first visible character must be ${outputContract.firstVisibleChar}
+9. Language check is relaxed (proper nouns in other languages are allowed as long as the configured language signal exists)`
 }
 
 function sortByTimestampDesc(entries: MemoryEntry[]): MemoryEntry[] {
@@ -107,6 +111,7 @@ function buildContextInjection(
     profile.preferences.preferredAgents.length > 0
       ? profile.preferences.preferredAgents.join(' + ')
       : 'intent-based auto selection'
+  const outputContract = resolveOutputContract(loadConfig().prompts)
 
   return `
 ## Session Context (${timestamp})
@@ -149,6 +154,7 @@ ${learningLines || '- None'}
 - Council mode is ${profile.preferences.councilMode ? 'enabled' : 'disabled'}
 - Learning is ${profile.preferences.learningEnabled ? 'enabled' : 'disabled'}
 - Communication style: ${profile.preferences.communicationStyle}
+- Output contract: language=${outputContract.language}, first visible character=${outputContract.firstVisibleChar}
 
 ---
 `

@@ -2,5 +2,9 @@
   "intent_detection": {
     "prompt": "Analyze user request and return JSON format:\n{\"intent\":\"analysis|technical|security|research|strategy|creative\",\"confidence\":0-1,\"keywords\":[]}\n\nUser request: {prompt}",
     "temperature": 0.3
+  },
+  "output_contract": {
+    "language": "chinese",
+    "first_visible_char": "🗣️"
   }
 }

@@ -84,6 +84,121 @@ Dynamic composition then applies threshold-based replacement:
 - allows non-baseline injection only when context-similarity or score confidence is high
 - records evidence in `systemInstructions` (`Dynamic composition injected` / `Dynamic composition replaced baseline`)
 
+Default output contract:
+- response should be Chinese
+- first visible character must be `🗣️`
+- English proper nouns are allowed, but output must include Chinese content
+
+Configurable at `~/.gpai/config/prompts.json`:
+```json
+{
+  "output_contract": {
+    "language": "chinese",
+    "first_visible_char": "🗣️"
+  }
+}
+```
+`language` supports: `chinese`, `english`, `any`.
+
+## Antigravity MCP Tools
+
+When GPAI is used as an MCP server (for example in Antigravity), these tools are exposed:
+
+- `gpai_health`: bridge health check.
+- `gpai_run_hook`: run one hook event manually (`SessionStart` / `BeforeAgent` / `BeforeTool` / `AfterTool` / `AfterAgent` / `PreCompress`).
+- `gpai_auto_pipeline`: run the full chain in one call:
+  - `SessionStart -> BeforeAgent -> (BeforeTool/AfterTool)* -> AfterAgent -> PreCompress`
+
+Boundary:
+- Gemini CLI Hook execution still runs via `dist/hooks/runner.js`.
+- MCP tools above are for MCP clients (such as Antigravity) and do not replace Gemini Hook registration.
+
+Notes for `gpai_auto_pipeline`:
+- Provide `result` if you want `AfterAgent` to execute; otherwise `AfterAgent` is skipped.
+- `toolExecutions` is optional; when provided, each item can include:
+  - `tool` / `args` / `result` / `executionTime`
+- `PreCompress` runs only when threshold is met (or `forcePreCompress=true`).
+- Stage switches are supported:
+  - `runSessionStart` / `runBeforeAgent` / `runToolStages` / `runAfterAgent` / `runPreCompress`
+  - all default to `true`.
+
+### Antigravity Workflow Rule (Copy/Paste)
+
+Use this as workflow policy so each turn runs GPAI automatically with two phases:
+
+```text
+[Rule: GPAI Auto Pipeline]
+For every user turn, execute these steps in order:
+
+Step 1 (Pre-stage, before drafting final answer):
+Call MCP tool `gpai_auto_pipeline` with:
+{
+  "sessionId": "{{conversation.id}}",
+  "timestamp": {{now_ms}},
+  "prompt": "{{user_message}}",
+  "conversationHistory": {{conversation.history}},
+  "runSessionStart": true,
+  "runBeforeAgent": true,
+  "runToolStages": false,
+  "runAfterAgent": false,
+  "runPreCompress": false
+}
+Then use returned `sessionStart` + `beforeAgent` as hidden planning context.
+
+Step 2 (Execute task):
+Run tools as needed and collect tool traces:
+[
+  { "tool": "...", "args": {...}, "result": {...}, "executionTime": 123 }
+]
+
+Step 3 (Post-stage, after final answer draft):
+Call MCP tool `gpai_auto_pipeline` with:
+{
+  "sessionId": "{{conversation.id}}",
+  "prompt": "{{user_message}}",
+  "result": "{{assistant_final_text}}",
+  "success": true,
+  "modelCalls": {{model_call_count}},
+  "executionTime": {{elapsed_ms}},
+  "toolExecutions": {{tool_traces}},
+  "runSessionStart": false,
+  "runBeforeAgent": false,
+  "runToolStages": true,
+  "runAfterAgent": true,
+  "runPreCompress": true,
+  "tokenUsage": {{context_tokens}},
+  "maxTokens": {{context_limit}}
+}
+
+Fallback:
+If Step 3 fails, call `gpai_run_hook` for `AfterAgent` to persist learning data.
+Always keep user-visible answer compliant with configured output contract.
+```
+
+Placement recommendation:
+- Recommended (simplest): let Antigravity load project file `/Users/liyanzhao/All-new/project/GPAI/.cursorrules`.
+- Fallback: put this policy in Antigravity `Customizations -> Workflows` (`Workspace` scope).
+- Avoid putting it in `Rules` when you do not want shared global constraints.
+
+## Project Prompt File (`.cursorrules`)
+
+This repository provides a minimal project-level prompt file:
+- `/Users/liyanzhao/All-new/project/GPAI/.cursorrules`
+
+What it does:
+- Runs `gpai_auto_pipeline` in two stages (pre-injection + post-learning).
+- Keeps behavior project-scoped (not global).
+
+Boundary:
+- `.cursorrules` is project prompt only.
+- Gemini CLI hooks still run through `dist/hooks/runner.js`.
+
+If you changed extension code, rebuild + reinstall before retrying in Antigravity:
+```bash
+npm run build
+npm run install-extension
+```
+
 ## AI Constraints (Where to Modify)
 
 ### Directly Editable (takes effect from next hook run/session)
@@ -105,6 +220,8 @@ Dynamic composition then applies threshold-based replacement:
   - Team process scaffold, scoring policy, dynamic composition policy
 - `extensions/gpai-core/hooks/BeforeTool.ts`
   - Security rule evaluation behavior
+- `extensions/gpai-core/hooks/AfterAgent.ts`
+  - Output contract validation and success/failure override
 
 ### Priority and Boundaries
 

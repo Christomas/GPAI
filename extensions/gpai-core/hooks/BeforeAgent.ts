@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { loadConfig } from '../utils/config'
+import { loadConfig, resolveOutputContract } from '../utils/config'
 import { callGemini } from '../utils/gemini'
 import {
   findRelevantMemoryEntries,
@@ -1270,6 +1270,7 @@ function generateSystemInstructions(
   preferenceSummary: string
 ): string {
   const config = loadConfig()
+  const outputContract = resolveOutputContract(config.prompts)
   const agentPrompts = agents
     .map((agentId) => {
       const agent = config.agents.agents.find((item) => item.id === agentId)
@@ -1291,6 +1292,11 @@ Task Type: ${intent}
 Preference Signals:
 ${preferenceSummary}
 
+Output Contract (highest priority):
+- Respond in ${outputContract.language}
+- The first visible character must be ${outputContract.firstVisibleChar}
+- Language check is relaxed (proper nouns in other languages are allowed as long as the configured language signal exists)
+
 Process:
 1. Each role analyzes independently
 2. Share perspectives
@@ -1309,6 +1315,7 @@ function buildModifiedPrompt(
   relatedProjects: TelosProject[]
 ): string {
   const timeContext = buildTimeContext(profile.preferences.timeZone)
+  const outputContract = resolveOutputContract(loadConfig().prompts)
   const projectHint =
     relatedProjects.length > 0
       ? relatedProjects
@@ -1334,6 +1341,7 @@ function buildModifiedPrompt(
   }
 - Time Zone: ${timeContext.timeZone}
 - Relative Dates: today=${timeContext.today}, tomorrow=${timeContext.tomorrow}, yesterday=${timeContext.yesterday}
+- Output Contract: language=${outputContract.language}; first visible character=${outputContract.firstVisibleChar}
 - Use Council mode for multi-perspective analysis
 - After completion, request user feedback (1-10 score)`
 }

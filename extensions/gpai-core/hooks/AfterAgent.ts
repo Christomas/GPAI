@@ -1,4 +1,5 @@
 import * as path from 'path'
+import { loadConfig, resolveOutputContract, type OutputContractConfig } from '../utils/config'
 import { saveMemoryEntry } from '../utils/memory'
 import { inferTaskComplexity, maybeRecomputeSuccessPatterns, updateSuccessPattern } from '../utils/profile'
 import { appendTelosLearning } from '../utils/telos'
@@ -23,16 +24,83 @@ interface AfterAgentOutput {
   message?: string
 }
 
+interface OutputContractValidation {
+  ok: boolean
+  reason?: string
+}
+
 function resolveGpaiDir(): string {
   return process.env.GPAI_DIR || path.join(process.env.HOME || process.cwd(), '.gpai')
+}
+
+function getOutputContractConfig(): OutputContractConfig {
+  try {
+    const config = loadConfig()
+    return resolveOutputContract(config.prompts)
+  } catch {
+    return {
+      language: 'chinese',
+      firstVisibleChar: '🗣️'
+    }
+  }
+}
+
+function validateLanguageSignal(input: string, language: OutputContractConfig['language']): boolean {
+  if (language === 'any') {
+    return true
+  }
+  if (language === 'english') {
+    return /[A-Za-z]/.test(input)
+  }
+  // relaxed chinese check: allow English proper nouns mixed in response.
+  return /[\u4e00-\u9fff]/.test(input)
+}
+
+function validateOutputContract(
+  result: string,
+  contractConfig: OutputContractConfig
+): OutputContractValidation {
+  const normalized = String(result || '').trimStart()
+  const requiredPrefix = contractConfig.firstVisibleChar
+
+  if (!normalized.startsWith(requiredPrefix)) {
+    return {
+      ok: false,
+      reason: `Output contract violation: first visible character must be ${requiredPrefix}`
+    }
+  }
+
+  const payload = normalized.slice(requiredPrefix.length).trim()
+  if (!validateLanguageSignal(payload, contractConfig.language)) {
+    const languageLabel =
+      contractConfig.language === 'any'
+        ? 'any'
+        : contractConfig.language === 'english'
+          ? 'English'
+          : 'Chinese'
+    return {
+      ok: false,
+      reason: `Output contract violation: response must include ${languageLabel} content.`
+    }
+  }
+
+  return {
+    ok: true
+  }
 }
 
 export async function handleAfterAgent(input: AfterAgentInput): Promise<AfterAgentOutput> {
   const gpaiDir = resolveGpaiDir()
 
   try {
-    const completionStatus = input.success ? 'completed' : 'failed'
-    const errorMessage = input.error?.message
+    const outputContract = getOutputContractConfig()
+    const contractValidation = input.success
+      ? validateOutputContract(input.result, outputContract)
+      : ({ ok: true } as OutputContractValidation)
+    const contractError = contractValidation.ok ? undefined : contractValidation.reason
+    const effectiveSuccess = input.success && !contractError
+    const completionStatus = effectiveSuccess ? 'completed' : 'failed'
+    const errorMessage = input.error?.message || contractError
     const taskComplexity = inferTaskComplexity({
       prompt: input.prompt,
       result: input.result,
@@ -43,7 +111,7 @@ export async function handleAfterAgent(input: AfterAgentInput): Promise<AfterAge
 
     const updatedWorkItem = finalizeLatestWorkItem(gpaiDir, {
       sessionId: input.sessionId,
-      success: input.success,
+      success: effectiveSuccess,
       executionTime: input.executionTime,
       toolsUsed: input.tools_used,
       modelCalls: input.model_calls,
@@ -70,7 +138,7 @@ export async function handleAfterAgent(input: AfterAgentInput): Promise<AfterAge
       updateSuccessPattern(gpaiDir, {
         task: updatedWorkItem.intent,
         agents: updatedWorkItem.agents,
-        success: input.success,
+        success: effectiveSuccess,
         toolsUsed: input.tools_used,
         project: updatedWorkItem.project,
         complexity: updatedWorkItem.complexity || taskComplexity,
@@ -118,14 +186,20 @@ export async function handleAfterAgent(input: AfterAgentInput): Promise<AfterAge
         executionTime: input.executionTime,
         toolsUsed: input.tools_used,
         modelCalls: input.model_calls,
-        success: input.success,
+        success: effectiveSuccess,
         prompt: input.prompt,
         complexity: updatedWorkItem?.complexity || taskComplexity,
-        workItemId: updatedWorkItem?.id
+        workItemId: updatedWorkItem?.id,
+          outputContract: {
+          requiredPrefix: outputContract.firstVisibleChar,
+          requiredLanguage: outputContract.language,
+          validated: contractValidation.ok,
+          reason: contractError
+        }
       }
     })
 
-    if (input.success) {
+    if (effectiveSuccess) {
       const learningSummary = input.result.replace(/\s+/g, ' ').trim().slice(0, 180)
       const learningPrefix = updatedWorkItem?.project
         ? `[${updatedWorkItem.project}]`
@@ -146,7 +220,12 @@ export async function handleAfterAgent(input: AfterAgentInput): Promise<AfterAge
           modelCalls: input.model_calls,
           success: true,
           complexity: updatedWorkItem?.complexity || taskComplexity,
-          workItemId: updatedWorkItem?.id
+          workItemId: updatedWorkItem?.id,
+          outputContract: {
+            requiredPrefix: outputContract.firstVisibleChar,
+            requiredLanguage: outputContract.language,
+            validated: true
+          }
         }
       })
       return {
@@ -170,7 +249,13 @@ export async function handleAfterAgent(input: AfterAgentInput): Promise<AfterAge
           modelCalls: input.model_calls,
           error: errorMessage,
           complexity: updatedWorkItem?.complexity || taskComplexity,
-          workItemId: updatedWorkItem?.id
+          workItemId: updatedWorkItem?.id,
+          outputContract: {
+            requiredPrefix: outputContract.firstVisibleChar,
+            requiredLanguage: outputContract.language,
+            validated: false,
+            reason: contractError
+          }
         }
       })
 

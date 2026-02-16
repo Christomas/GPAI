@@ -1,0 +1,45 @@
+# GPAI Antigravity Project Prompt
+
+当可用 MCP 服务 `GPAI` 时，每轮执行两步（简单优先）：
+
+1) 前置注入（先调用一次）：
+- tool: `gpai_auto_pipeline`
+- arguments:
+  {
+    "sessionId": "<session-id>",
+    "timestamp": <now-ms>,
+    "prompt": "<user-message>",
+    "conversationHistory": <history>,
+    "runSessionStart": true,
+    "runBeforeAgent": true,
+    "runToolStages": false,
+    "runAfterAgent": false,
+    "runPreCompress": false
+  }
+
+2) 后置学习（最终答复后调用一次）：
+- tool: `gpai_auto_pipeline`
+- arguments:
+  {
+    "sessionId": "<session-id>",
+    "prompt": "<user-message>",
+    "result": "<assistant-final-text>",
+    "success": true,
+    "modelCalls": <model-calls-or-0>,
+    "executionTime": <elapsed-ms-or-0>,
+    "toolExecutions": <tool-traces>,
+    "runSessionStart": false,
+    "runBeforeAgent": false,
+    "runToolStages": true,
+    "runAfterAgent": true,
+    "runPreCompress": true,
+    "tokenUsage": <context-tokens-or-0>,
+    "maxTokens": <context-limit-or-100000>
+  }
+
+失败回退：
+- 若后置调用失败，回退调用 `gpai_run_hook`，`event=AfterAgent`。
+
+边界：
+- 仅项目级提示词，不修改全局规则。
+- Gemini CLI Hook 仍走 `dist/hooks/runner.js`。

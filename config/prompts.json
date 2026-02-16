@@ -15,5 +15,9 @@
   "council_synthesis": {
     "prompt": "你现在是一个综合专家。\\n\\n以下是各角色的观点：\\n{individual_views}\\n\\n请综合这些观点，给出最优的、经过多角度思考的答案。",
     "temperature": 0.5
+  },
+  "output_contract": {
+    "language": "chinese",
+    "first_visible_char": "🗣️"
   }
 }

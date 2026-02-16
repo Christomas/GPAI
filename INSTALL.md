@@ -104,6 +104,34 @@ tail -n 50 ~/.gpai/data/logs/hooks-$(date +%F).jsonl
 
 You should see events such as `SessionStart`, `BeforeAgent`, `AfterAgent`.
 
+## Antigravity (Optional, Shared Memory with Gemini CLI)
+
+If you also use Antigravity, point MCP to the installed extension entry:
+
+```json
+{
+  "mcpServers": {
+    "GPAI": {
+      "command": "node",
+      "args": [
+        "/Users/<YOUR_USER>/.gemini/extensions/gpai-core/dist/index.js"
+      ]
+    }
+  }
+}
+```
+
+Use an absolute path. Do not use `$HOME` or `~` in `args` unless your MCP host explicitly expands them.
+
+Then in Antigravity:
+- Go to `Customizations -> Workflows` and create a workspace workflow (recommended).
+- Paste the workflow policy from `README.md` section `Antigravity Workflow Rule (Copy/Paste)`.
+- Trigger with `//`.
+
+Important:
+- If you want to avoid cross-environment prompt pollution, do not put this policy in `Rules`.
+- Keep it in `Workflows` so Gemini CLI rule behavior is not globally affected.
+
 ## Reinstall After Source Changes
 
 If extension source changes, rebuild and reinstall:
