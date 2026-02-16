@@ -1,3 +1,6 @@
 export * from './config'
 export * from './gemini'
 export * from './memory'
+export * from './profile'
+export * from './telos'
+export * from './work'

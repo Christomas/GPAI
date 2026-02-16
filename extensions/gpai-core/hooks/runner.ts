@@ -15,6 +15,12 @@ interface GenericHookInput {
   timestamp?: string
   prompt?: string
   prompt_response?: string
+  success?: boolean
+  stop_hook_active?: boolean
+  execution_time?: number
+  tools_used?: string[]
+  model_calls?: number
+  error?: string | { message?: string }
   tool_name?: string
   tool_input?: Record<string, unknown>
   tool_response?: Record<string, unknown>
@@ -80,6 +86,30 @@ function logHookEvent(eventName: HookEvent, input: GenericHookInput, output: unk
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((item): item is string => typeof item === 'string')
+}
+
+function extractErrorMessage(value: GenericHookInput['error']): string | undefined {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim()
+  }
+
+  if (value && typeof value === 'object' && typeof value.message === 'string') {
+    return value.message
+  }
+
+  return undefined
 }
 
 async function routeEvent(eventName: HookEvent, input: GenericHookInput): Promise<Record<string, unknown>> {
@@ -173,12 +203,18 @@ async function routeEvent(eventName: HookEvent, input: GenericHookInput): Promis
 
     case 'AfterAgent': {
       const { handleAfterAgent } = await import('./AfterAgent')
+      const errorMessage = extractErrorMessage(input.error)
+      const explicitSuccess = typeof input.success === 'boolean' ? input.success : undefined
+      const inferredSuccess = errorMessage ? false : !Boolean(input.stop_hook_active)
       const result = await handleAfterAgent({
+        sessionId: input.session_id,
+        prompt: asString(input.prompt),
         result: asString(input.prompt_response),
-        executionTime: 0,
-        tools_used: [],
-        model_calls: 0,
-        success: true
+        executionTime: asNumber(input.execution_time),
+        tools_used: asStringArray(input.tools_used),
+        model_calls: asNumber(input.model_calls),
+        success: explicitSuccess ?? inferredSuccess,
+        error: errorMessage ? { message: errorMessage } : undefined
       })
 
       return {

@@ -32,6 +32,11 @@ echo -e "\n✓ Testing Configuration..."
 test -f "$HOME/.gpai/data/profile.json" && echo "  ✓ Profile exists" || exit 1
 test -f "$HOME/.gpai/config/agents.json" && echo "  ✓ Agents config exists" || exit 1
 test -f "$HOME/.gpai/config/patterns.yaml" && echo "  ✓ Security patterns exist" || exit 1
+if test -f "$HOME/.gpai/config/learning.json"; then
+  echo "  ✓ Learning config exists"
+else
+  echo "  [WARN] learning.json not found, using built-in recompute defaults."
+fi
 
 echo -e "\n✓ Testing Memory System..."
 test -d "$HOME/.gpai/data/memory" && echo "  ✓ Memory directory exists" || exit 1

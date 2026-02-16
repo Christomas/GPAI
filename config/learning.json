@@ -1,0 +1,7 @@
+{
+  "successPatternRecompute": {
+    "historyDeltaThreshold": 30,
+    "ratedDeltaThreshold": 10,
+    "minIntervalMinutes": 15
+  }
+}

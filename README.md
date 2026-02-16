@@ -4,7 +4,12 @@ GPAI (Gemini Personal AI Infrastructure) provides:
 
 - Gemini CLI extension hooks (`SessionStart`, `BeforeAgent`, `BeforeTool`, `AfterTool`, `AfterAgent`, `PreCompress`)
 - Personal profile + memory layers (`hot`/`warm`/`cold`)
+- TELOS profile context (mission/goals/projects/beliefs/models/strategies/learnings)
+- 8-role agent pool (`engineer`, `architect`, `analyst`, `devil`, `planner`, `qa`, `researcher`, `writer`)
 - Multi-agent mapping and prompt templates
+- Automatic success-pattern recompute (threshold-based)
+- Context-similarity agent reranking from historical outcomes (intent/project/complexity/tools/text)
+- Dynamic composition override: high-confidence non-baseline agents can replace baseline slots with safeguards
 - Security guardrails for tool execution
 
 ## Compatibility
@@ -27,6 +32,9 @@ GPAI (Gemini Personal AI Infrastructure) provides:
    ```bash
    npm run init
    ```
+   `init` only asks for `name` / `aiName` plus timezone (auto-detect + optional override).
+   Later conversations can explicitly/implicitly update TELOS fields except `name` / `aiName` / `timeZone`.
+   If `GOOGLE_API_KEY` was not exported before init, edit `~/.gpai/.env` after init.
 4. Install extension:
    ```bash
    npm run install-extension
@@ -54,6 +62,59 @@ tail -n 50 ~/.gpai/data/logs/hooks-$(date +%F).jsonl
 ```
 
 You should see events such as `SessionStart`, `BeforeAgent`, `AfterAgent`.
+
+`npm run test:integration` may show warnings when your Gemini CLI version lacks `gemini hooks list` or `test-gpai`; this is expected.
+
+Success-pattern recompute is triggered automatically by thresholds:
+- history delta >= 30, or rated-history delta >= 10
+- cooldown: 15 minutes (unless forced by large delta)
+
+Config file:
+- `~/.gpai/config/learning.json` (fallback: project `config/learning.json`)
+
+Per-turn hard constraints (optional):
+- `本轮包含agent: researcher, writer, devil`
+- `本轮排除agent: analyst`
+- `仅用agent: researcher, writer`
+
+By default, `BeforeAgent` also applies context-similarity signals from `~/.gpai/data/history.json`
+to rerank agents, and writes evidence lines into `systemInstructions` (`Context similarity boost` / `Context-similar case`).
+Dynamic composition then applies threshold-based replacement:
+- keeps an intent baseline anchor agent (e.g. `technical` keeps `engineer`)
+- allows non-baseline injection only when context-similarity or score confidence is high
+- records evidence in `systemInstructions` (`Dynamic composition injected` / `Dynamic composition replaced baseline`)
+
+## AI Constraints (Where to Modify)
+
+### Directly Editable (takes effect from next hook run/session)
+
+- `~/.gpai/config/patterns.yaml`
+  - Tool security rules: `blocked` / `confirm` / `alert`
+- `~/.gpai/config/agents.json`
+  - Agent role prompts (`systemPrompt`) and intent-to-agent mapping (`intentToAgents`)
+- `~/.gpai/config/prompts.json`
+  - Intent detection prompt template (`intent_detection.prompt`)
+- `~/.gpai/data/profile.json`
+  - TELOS/runtime preferences (`communicationStyle`, `preferredAgents`, `councilMode`, `learningEnabled`, `timeZone`)
+
+### Code-Level Constraints (require rebuild + reinstall)
+
+- `extensions/gpai-core/hooks/SessionStart.ts`
+  - Session-level system prompt scaffold
+- `extensions/gpai-core/hooks/BeforeAgent.ts`
+  - Team process scaffold, scoring policy, dynamic composition policy
+- `extensions/gpai-core/hooks/BeforeTool.ts`
+  - Security rule evaluation behavior
+
+### Priority and Boundaries
+
+- Config priority: `~/.gpai/config/*` overrides project `config/*`.
+- If you changed TypeScript source under `extensions/gpai-core`, run:
+  ```bash
+  npm run build
+  npm run install-extension
+  ```
+- Gemini CLI/model provider guardrails are outside this project and cannot be overridden by GPAI repo config.
 
 ## Update Workflow (When Code Changes)
 

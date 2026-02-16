@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { appendJsonl, readJsonl } from '../utils/memory'
+import { normalizeMemoryEntry, readJsonl, type MemoryEntry, type MemoryTier } from '../utils/memory'
 
 interface PreCompressInput {
   sessionId: string
@@ -14,11 +14,81 @@ interface PreCompressOutput {
   metadata: Record<string, unknown>
 }
 
+export const PRECOMPRESS_POLICY = {
+  hotKeepCount: 20,
+  hotCompressionRatio: 0.85,
+  warmRetentionDays: 21,
+  warmMaxCount: 300,
+  coldMaxCount: 1000
+} as const
+
 function resolveGpaiDir(): string {
   return process.env.GPAI_DIR || path.join(process.env.HOME || process.cwd(), '.gpai')
 }
 
-function summarizeEntries(entries: any[]): string {
+function tierPath(gpaiDir: string, tier: MemoryTier): string {
+  return path.join(gpaiDir, `data/memory/${tier}.jsonl`)
+}
+
+function parseTimestampMs(timestamp: string): number {
+  const parsed = Date.parse(timestamp)
+  if (Number.isNaN(parsed)) {
+    return 0
+  }
+  return parsed
+}
+
+function sortByTimestamp(entries: MemoryEntry[], order: 'asc' | 'desc'): MemoryEntry[] {
+  return [...entries].sort((a, b) => {
+    const diff = parseTimestampMs(a.timestamp) - parseTimestampMs(b.timestamp)
+    return order === 'asc' ? diff : -diff
+  })
+}
+
+function memoryIdentity(entry: MemoryEntry): string {
+  return `${entry.type}|${entry.sessionId || ''}|${entry.intent || ''}|${entry.timestamp}|${entry.content}`
+}
+
+function dedupeEntries(entries: MemoryEntry[]): MemoryEntry[] {
+  const seen = new Set<string>()
+  const deduped: MemoryEntry[] = []
+
+  entries.forEach((entry) => {
+    const identity = memoryIdentity(entry)
+    if (seen.has(identity)) {
+      return
+    }
+    seen.add(identity)
+    deduped.push(entry)
+  })
+
+  return deduped
+}
+
+function loadTierEntries(gpaiDir: string, tier: MemoryTier): MemoryEntry[] {
+  return readJsonl(tierPath(gpaiDir, tier))
+    .map((item) => normalizeMemoryEntry(item, tier))
+    .filter((item): item is MemoryEntry => Boolean(item))
+}
+
+function writeTierEntries(gpaiDir: string, tier: MemoryTier, entries: MemoryEntry[]): void {
+  const filePath = tierPath(gpaiDir, tier)
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+
+  if (entries.length === 0) {
+    fs.writeFileSync(filePath, '')
+    return
+  }
+
+  fs.writeFileSync(filePath, `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`)
+}
+
+function isOlderThanDays(entry: MemoryEntry, days: number, nowMs: number): boolean {
+  const ageMs = nowMs - parseTimestampMs(entry.timestamp)
+  return ageMs > days * 24 * 60 * 60 * 1000
+}
+
+function summarizeEntries(entries: MemoryEntry[]): string {
   if (entries.length === 0) {
     return 'No notable recent events.'
   }
@@ -33,37 +103,63 @@ function summarizeEntries(entries: any[]): string {
 
 export async function handlePreCompress(input: PreCompressInput): Promise<PreCompressOutput> {
   const gpaiDir = resolveGpaiDir()
-  const hotPath = path.join(gpaiDir, 'data/memory/hot.jsonl')
-  const warmPath = path.join(gpaiDir, 'data/memory/warm.jsonl')
 
   try {
-    const hotEntries = readJsonl(hotPath)
+    const nowMs = Date.now()
+    const hotEntries = sortByTimestamp(loadTierEntries(gpaiDir, 'hot'), 'asc')
+    const warmEntries = sortByTimestamp(loadTierEntries(gpaiDir, 'warm'), 'asc')
+    const coldEntries = sortByTimestamp(loadTierEntries(gpaiDir, 'cold'), 'asc')
 
-    if (hotEntries.length <= 20 && input.tokenUsage < input.maxTokens * 0.85) {
-      return {
-        compressedContext: summarizeEntries(hotEntries),
-        archivedCount: 0,
-        metadata: {
-          reason: 'compression-not-required'
-        }
-      }
+    const shouldRotateHot =
+      hotEntries.length > PRECOMPRESS_POLICY.hotKeepCount ||
+      input.tokenUsage >= input.maxTokens * PRECOMPRESS_POLICY.hotCompressionRatio
+
+    let hotToWarm: MemoryEntry[] = []
+    let nextHot = hotEntries
+
+    if (shouldRotateHot && hotEntries.length > PRECOMPRESS_POLICY.hotKeepCount) {
+      const split = hotEntries.length - PRECOMPRESS_POLICY.hotKeepCount
+      hotToWarm = hotEntries.slice(0, split)
+      nextHot = hotEntries.slice(split)
     }
 
-    const keepCount = 20
-    const archiveEntries = hotEntries.slice(0, Math.max(0, hotEntries.length - keepCount))
-    const recentEntries = hotEntries.slice(-keepCount)
+    const warmCombined = sortByTimestamp(dedupeEntries([...warmEntries, ...hotToWarm]), 'asc')
+    const warmToColdByAge = warmCombined.filter((entry) =>
+      isOlderThanDays(entry, PRECOMPRESS_POLICY.warmRetentionDays, nowMs)
+    )
+    const warmRecent = warmCombined.filter(
+      (entry) => !isOlderThanDays(entry, PRECOMPRESS_POLICY.warmRetentionDays, nowMs)
+    )
 
-    if (archiveEntries.length > 0) {
-      archiveEntries.forEach((entry) => appendJsonl(warmPath, entry))
-      fs.writeFileSync(hotPath, `${recentEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`)
-    }
+    const warmOverflow = Math.max(0, warmRecent.length - PRECOMPRESS_POLICY.warmMaxCount)
+    const warmToColdByCount = warmOverflow > 0 ? warmRecent.slice(0, warmOverflow) : []
+    const nextWarm = warmOverflow > 0 ? warmRecent.slice(warmOverflow) : warmRecent
+
+    const warmToCold = sortByTimestamp(dedupeEntries([...warmToColdByAge, ...warmToColdByCount]), 'asc')
+    const coldCombined = sortByTimestamp(dedupeEntries([...coldEntries, ...warmToCold]), 'asc')
+    const coldPrunedCount = Math.max(0, coldCombined.length - PRECOMPRESS_POLICY.coldMaxCount)
+    const nextCold = coldPrunedCount > 0 ? coldCombined.slice(coldPrunedCount) : coldCombined
+
+    writeTierEntries(gpaiDir, 'hot', nextHot)
+    writeTierEntries(gpaiDir, 'warm', nextWarm)
+    writeTierEntries(gpaiDir, 'cold', nextCold)
+
+    const recentEntries = sortByTimestamp(nextHot, 'desc').slice(0, 10)
+    const rotationHappened = hotToWarm.length > 0 || warmToCold.length > 0 || coldPrunedCount > 0
 
     return {
       compressedContext: summarizeEntries(recentEntries),
-      archivedCount: archiveEntries.length,
+      archivedCount: hotToWarm.length,
       metadata: {
+        reason: rotationHappened ? 'tier-rotation-applied' : 'compression-not-required',
         tokenUsage: input.tokenUsage,
-        maxTokens: input.maxTokens
+        maxTokens: input.maxTokens,
+        hotToWarmCount: hotToWarm.length,
+        warmToColdCount: warmToCold.length,
+        coldPrunedCount,
+        finalHotCount: nextHot.length,
+        finalWarmCount: nextWarm.length,
+        finalColdCount: nextCold.length
       }
     }
   } catch (error) {

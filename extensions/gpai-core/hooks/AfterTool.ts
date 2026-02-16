@@ -1,5 +1,5 @@
 import * as path from 'path'
-import { saveToMemory } from '../utils/memory'
+import { saveMemoryEntry } from '../utils/memory'
 
 interface AfterToolInput {
   tool: string
@@ -30,19 +30,18 @@ export async function handleAfterTool(input: AfterToolInput): Promise<AfterToolO
     }
 
     const resultSize = JSON.stringify(input.result ?? '').length
-    const memoryEntry = {
+    saveMemoryEntry(gpaiDir, 'hot', {
       type: 'tool_execution',
       content: `Executed ${input.tool} in ${input.executionTime}ms`,
-      timestamp: Date.now(),
+      tags: ['tool', 'execution'],
+      source: 'after-tool',
       metadata: {
         tool: input.tool,
         duration: input.executionTime,
         resultSize,
         success: true
       }
-    }
-
-    saveToMemory(gpaiDir, 'hot', memoryEntry)
+    })
 
     return {
       capturedResult,

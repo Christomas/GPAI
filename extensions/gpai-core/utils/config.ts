@@ -44,9 +44,19 @@ const defaultConfig: AppConfig = {
         responseStyle: 'technical'
       },
       {
+        id: 'architect',
+        name: 'Architect',
+        role: 'System Architect',
+        personality: 'Holistic',
+        systemPrompt: 'You design system boundaries, trade-offs, and evolution paths.',
+        expertise: ['architecture', 'system-design', 'scalability', 'trade-off-analysis'],
+        speed: 'balanced',
+        responseStyle: 'structured'
+      },
+      {
         id: 'analyst',
         name: 'Analyst',
-        role: 'Security Analyst',
+        role: 'Risk Analyst',
         personality: 'Systematic',
         systemPrompt: 'You are a security analyst who identifies risks and mitigations.',
         expertise: ['security', 'analysis', 'risk-assessment'],
@@ -62,15 +72,55 @@ const defaultConfig: AppConfig = {
         expertise: ['critical-thinking', 'threat-modeling'],
         speed: 'fast',
         responseStyle: 'critical'
+      },
+      {
+        id: 'planner',
+        name: 'Planner',
+        role: 'Execution Planner',
+        personality: 'Goal-driven',
+        systemPrompt: 'You break goals into executable milestones with clear constraints.',
+        expertise: ['planning', 'prioritization', 'milestone-design'],
+        speed: 'balanced',
+        responseStyle: 'actionable'
+      },
+      {
+        id: 'qa',
+        name: 'QA',
+        role: 'Quality Assurance',
+        personality: 'Strict',
+        systemPrompt: 'You define test strategy, acceptance criteria, and regression coverage.',
+        expertise: ['testing', 'regression', 'acceptance-criteria'],
+        speed: 'balanced',
+        responseStyle: 'checklist'
+      },
+      {
+        id: 'researcher',
+        name: 'Researcher',
+        role: 'Evidence Researcher',
+        personality: 'Evidence-first',
+        systemPrompt: 'You gather high-quality evidence and compare sources before concluding.',
+        expertise: ['research', 'fact-checking', 'comparative-analysis'],
+        speed: 'thorough',
+        responseStyle: 'evidence-based'
+      },
+      {
+        id: 'writer',
+        name: 'Writer',
+        role: 'Technical Writer',
+        personality: 'Clear',
+        systemPrompt: 'You turn complex analysis into concise, useful, structured deliverables.',
+        expertise: ['technical-writing', 'summarization', 'documentation'],
+        speed: 'fast',
+        responseStyle: 'clear'
       }
     ],
     intentToAgents: {
       analysis: ['analyst', 'engineer', 'devil'],
-      creative: ['engineer'],
-      technical: ['engineer', 'devil'],
-      research: ['analyst', 'devil'],
-      strategy: ['analyst', 'engineer'],
-      security: ['analyst', 'devil', 'engineer']
+      creative: ['writer', 'planner', 'researcher'],
+      technical: ['engineer', 'architect', 'qa', 'devil'],
+      research: ['researcher', 'analyst', 'writer', 'devil'],
+      strategy: ['planner', 'architect', 'analyst', 'devil'],
+      security: ['analyst', 'devil', 'engineer', 'qa']
     }
   },
   prompts: {

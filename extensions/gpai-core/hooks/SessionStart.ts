@@ -1,6 +1,7 @@
-import * as fs from 'fs'
 import * as path from 'path'
-import { loadMemory } from '../utils/memory'
+import { readMemoryEntries, type MemoryEntry } from '../utils/memory'
+import { loadSuccessPatterns, type SuccessPattern } from '../utils/profile'
+import { buildTimeContext, listFocusProjects, loadTelosProfile, type TelosProfile } from '../utils/telos'
 
 interface SessionStartInput {
   sessionId: string
@@ -13,73 +14,14 @@ interface SessionStartOutput {
   metadata: Record<string, unknown>
 }
 
-interface UserProfile {
-  user: {
-    name: string
-    aiName: string
-    email?: string
-  }
-  mission: string
-  goals: string[]
-  preferences: {
-    communicationStyle: string
-    detailLevel?: string
-    responseLength?: string
-    preferredAgents: string[]
-    councilMode: boolean
-    learningEnabled: boolean
-  }
-}
-
-const fallbackProfile: UserProfile = {
-  user: {
-    name: 'User',
-    aiName: 'Kai'
-  },
-  mission: 'Build safe and reliable systems',
-  goals: ['Improve quality', 'Reduce risk', 'Automate repetitive tasks'],
-  preferences: {
-    communicationStyle: 'direct',
-    preferredAgents: ['engineer', 'analyst'],
-    councilMode: true,
-    learningEnabled: true
-  }
-}
-
 function resolveGpaiDir(): string {
   return process.env.GPAI_DIR || path.join(process.env.HOME || process.cwd(), '.gpai')
 }
 
-function loadProfile(gpaiDir: string): UserProfile {
-  const profilePath = path.join(gpaiDir, 'data/profile.json')
-  const fallbackPath = path.join(process.cwd(), 'data/profile.json')
-  const targetPath = fs.existsSync(profilePath) ? profilePath : fallbackPath
-
-  if (!fs.existsSync(targetPath)) {
-    return fallbackProfile
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(targetPath, 'utf-8')) as Partial<UserProfile>
-    return {
-      ...fallbackProfile,
-      ...parsed,
-      user: {
-        ...fallbackProfile.user,
-        ...(parsed.user || {})
-      },
-      preferences: {
-        ...fallbackProfile.preferences,
-        ...(parsed.preferences || {})
-      },
-      goals: Array.isArray(parsed.goals) && parsed.goals.length > 0 ? parsed.goals : fallbackProfile.goals
-    }
-  } catch {
-    return fallbackProfile
-  }
-}
-
-function buildSystemPrompt(profile: UserProfile): string {
+function buildSystemPrompt(profile: TelosProfile): string {
+  const beliefs = profile.beliefs.slice(0, 2).join('; ') || 'Safety over speed'
+  const strategies = profile.strategies.slice(0, 2).join('; ') || 'Break tasks into verifiable steps'
+  const timeContext = buildTimeContext(profile.preferences.timeZone)
   return `You are an intelligent AI assistant helping the user achieve their goals.
 
 User Profile:
@@ -87,6 +29,9 @@ User Profile:
 - AI Name: ${profile.user.aiName}
 - Mission: ${profile.mission}
 - Goals: ${profile.goals.slice(0, 3).join(', ')}
+- Time Zone: ${timeContext.timeZone}
+- Beliefs: ${beliefs}
+- Strategies: ${strategies}
 
 Instructions:
 1. Remember the user's background, preferences, and history
@@ -94,24 +39,74 @@ Instructions:
 3. Use Council mode (multiple perspectives) for important decisions
 4. At the end of each task, ask the user for feedback (1-10 score)
 5. Learn from user feedback and improve your approach
-6. If the user prefers certain agents, use them by default`
+6. If the user prefers certain agents, use them by default
+7. Use high-rated historical patterns when they fit the current task`
 }
 
-function buildContextInjection(profile: UserProfile, hotMemory: any[], warmMemory: any[]): string {
-  const timestamp = new Date().toISOString()
+function sortByTimestampDesc(entries: MemoryEntry[]): MemoryEntry[] {
+  return [...entries].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+}
 
-  const successfulPatterns = warmMemory
-    .filter((entry) => {
-      const score = typeof entry.rating === 'number' ? entry.rating : 0
-      return entry.type === 'success' || score >= 8
+function formatMemoryLine(entry: MemoryEntry): string {
+  const ratingLabel = typeof entry.rating === 'number' ? ` | Rating: ${entry.rating}` : ''
+  const agentsLabel = entry.agents.length > 0 ? ` | Agents: ${entry.agents.join(', ')}` : ''
+  return `- ${entry.content}${ratingLabel}${agentsLabel}`
+}
+
+function formatPatternLine(pattern: SuccessPattern): string {
+  const successRate = Math.round(pattern.successRate * 100)
+  return `- ${pattern.task}: ${pattern.method} (${successRate}% success)`
+}
+
+function buildContextInjection(
+  profile: TelosProfile,
+  hotMemory: MemoryEntry[],
+  warmMemory: MemoryEntry[],
+  successPatterns: SuccessPattern[]
+): string {
+  const timestamp = new Date().toISOString()
+  const timeContext = buildTimeContext(profile.preferences.timeZone)
+  const combinedMemory = sortByTimestampDesc([...hotMemory, ...warmMemory])
+
+  const highRatedSignals = combinedMemory
+    .filter(
+      (entry): entry is MemoryEntry & { rating: number } =>
+        typeof entry.rating === 'number' && entry.rating >= 8
+    )
+    .slice(0, 4)
+    .map((entry) => formatMemoryLine(entry))
+
+  const successfulPatterns = successPatterns
+    .filter((pattern) => pattern.successRate >= 0.65)
+    .sort((a, b) => {
+      const rateDiff = b.successRate - a.successRate
+      if (Math.abs(rateDiff) > 0.001) {
+        return rateDiff
+      }
+      return b.lastUsed.localeCompare(a.lastUsed)
     })
     .slice(0, 3)
-    .map((entry) => `- ${entry.content || 'N/A'} [Rating: ${entry.rating || 'N/A'}]`)
+    .map((pattern) => formatPatternLine(pattern))
 
-  const recentHot = hotMemory
-    .slice(-5)
-    .map((entry) => `- ${entry.content || 'N/A'}`)
+  const recentHot = sortByTimestampDesc(hotMemory)
+    .slice(0, 6)
+    .map((entry) => formatMemoryLine(entry))
     .join('\n')
+  const focusProjects = listFocusProjects(profile, 3)
+  const projectLines = focusProjects
+    .map((project) => {
+      const description = project.description ? ` - ${project.description}` : ''
+      return `- ${project.name} (${project.status}/${project.priority})${description}`
+    })
+    .join('\n')
+  const beliefLines = profile.beliefs.slice(0, 3).map((item) => `- ${item}`).join('\n')
+  const modelLines = profile.models.slice(0, 2).map((item) => `- ${item}`).join('\n')
+  const strategyLines = profile.strategies.slice(0, 3).map((item) => `- ${item}`).join('\n')
+  const learningLines = profile.learnings.slice(0, 3).map((item) => `- ${item}`).join('\n')
+  const preferredAgentsLabel =
+    profile.preferences.preferredAgents.length > 0
+      ? profile.preferences.preferredAgents.join(' + ')
+      : 'intent-based auto selection'
 
   return `
 ## Session Context (${timestamp})
@@ -121,14 +116,36 @@ function buildContextInjection(profile: UserProfile, hotMemory: any[], warmMemor
 **Current Goals**: ${profile.goals.slice(0, 3).join(', ')}
 **Working Style**: ${profile.preferences.communicationStyle}
 
-### Recent Successful Patterns
+### Active Projects
+${projectLines || '- None'}
+
+### Time Context
+- Time Zone: ${timeContext.timeZone}
+- Local Now: ${timeContext.localNow}
+- Relative Dates: today=${timeContext.today}, tomorrow=${timeContext.tomorrow}, yesterday=${timeContext.yesterday}
+
+### Decision Principles (TELOS)
+Beliefs:
+${beliefLines || '- None'}
+Models:
+${modelLines || '- None'}
+Strategies:
+${strategyLines || '- None'}
+
+### High-Rated Memory Signals
+${highRatedSignals.length > 0 ? highRatedSignals.join('\n') : '- None'}
+
+### Long-Term Success Patterns
 ${successfulPatterns.length > 0 ? successfulPatterns.join('\n') : '- None'}
 
 ### Recent Working Memory
 ${recentHot || '- Empty'}
 
+### Recent Learnings
+${learningLines || '- None'}
+
 ### Session Guidelines
-- Use ${profile.preferences.preferredAgents.join(' + ')} for analysis
+- Use ${preferredAgentsLabel} for analysis
 - Council mode is ${profile.preferences.councilMode ? 'enabled' : 'disabled'}
 - Learning is ${profile.preferences.learningEnabled ? 'enabled' : 'disabled'}
 - Communication style: ${profile.preferences.communicationStyle}
@@ -141,11 +158,15 @@ export async function handleSessionStart(input: SessionStartInput): Promise<Sess
   const gpaiDir = resolveGpaiDir()
 
   try {
-    const profile = loadProfile(gpaiDir)
-    const hotMemory = loadMemory(gpaiDir, 'hot', 10)
-    const warmMemory = loadMemory(gpaiDir, 'warm', 5)
+    const profile = loadTelosProfile(gpaiDir)
+    const hotMemory = readMemoryEntries(gpaiDir, 'hot', 40)
+    const warmMemory = readMemoryEntries(gpaiDir, 'warm', 120)
+    const successPatterns = loadSuccessPatterns(gpaiDir)
     const systemPrompt = buildSystemPrompt(profile)
-    const context = buildContextInjection(profile, hotMemory, warmMemory)
+    const context = buildContextInjection(profile, hotMemory, warmMemory, successPatterns)
+    const highRatedCount = [...hotMemory, ...warmMemory].filter(
+      (entry) => typeof entry.rating === 'number' && entry.rating >= 8
+    ).length
 
     return {
       context,
@@ -154,7 +175,11 @@ export async function handleSessionStart(input: SessionStartInput): Promise<Sess
         sessionId: input.sessionId,
         timestamp: input.timestamp,
         userMission: profile.mission,
-        goals: profile.goals.slice(0, 3)
+        goals: profile.goals.slice(0, 3),
+        timeZone: profile.preferences.timeZone,
+        focusProjects: listFocusProjects(profile, 3).map((project) => project.name),
+        highRatedSignals: highRatedCount,
+        successPatternCount: successPatterns.length
       }
     }
   } catch (error) {
