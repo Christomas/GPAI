@@ -1264,6 +1264,45 @@ function inferGoalFromIntent(intent: string): string {
   }
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function logBeforeAgentError(gpaiDir: string, stage: string, error: unknown): void {
+  try {
+    saveMemoryEntry(gpaiDir, 'warm', {
+      type: 'error',
+      content: `[BeforeAgent:${stage}] ${errorMessage(error).slice(0, 220)}`,
+      tags: ['error', 'before-agent'],
+      source: 'before-agent',
+      metadata: {
+        stage
+      }
+    })
+  } catch {
+    // Ignore logging errors to keep BeforeAgent resilient.
+  }
+}
+
+function withFallback<T>(operation: () => T, fallback: T, onError?: (error: unknown) => void): T {
+  try {
+    return operation()
+  } catch (error) {
+    onError?.(error)
+    return fallback
+  }
+}
+
 function generateSystemInstructions(
   agents: string[],
   intent: string,
@@ -1351,17 +1390,34 @@ export async function handleBeforeAgent(input: BeforeAgentInput): Promise<Before
 
   try {
     const knownAgentIds = availableAgentIds()
-    const feedbackSignal = captureFeedbackSignal(gpaiDir, input.prompt, input.sessionId)
-    const telosUpdate = applyTelosUpdatesFromPrompt(gpaiDir, input.prompt, {
-      knownAgents: knownAgentIds
-    })
+    const feedbackSignal = withFallback(
+      () => captureFeedbackSignal(gpaiDir, input.prompt, input.sessionId),
+      null,
+      (error) => logBeforeAgentError(gpaiDir, 'capture-feedback', error)
+    )
+    const telosUpdate = withFallback(
+      () =>
+        applyTelosUpdatesFromPrompt(gpaiDir, input.prompt, {
+          knownAgents: knownAgentIds
+        }),
+      { updated: false, fields: [] } as TelosUpdateResult,
+      (error) => logBeforeAgentError(gpaiDir, 'apply-telos-updates', error)
+    )
     const intent = await analyzeIntent(input.prompt)
     const implicitGoal = inferGoalFromIntent(intent)
     const agentConstraints = parseAgentConstraints(input.prompt, knownAgentIds)
 
-    const baseAgents = selectAgentsByIntent(intent)
+    const baseAgents = withFallback(
+      () => selectAgentsByIntent(intent),
+      ['engineer', 'analyst'],
+      (error) => logBeforeAgentError(gpaiDir, 'select-agents', error)
+    )
     let profile = loadTelosProfile(gpaiDir)
-    const implicitGoalAdded = ensureTelosGoal(gpaiDir, implicitGoal)
+    const implicitGoalAdded = withFallback(
+      () => ensureTelosGoal(gpaiDir, implicitGoal),
+      false,
+      (error) => logBeforeAgentError(gpaiDir, 'ensure-goal', error)
+    )
     if (telosUpdate.updated || implicitGoalAdded) {
       profile = loadTelosProfile(gpaiDir)
     }
@@ -1417,14 +1473,19 @@ export async function handleBeforeAgent(input: BeforeAgentInput): Promise<Before
       knownAgentIds
     )
 
-    createWorkItem(gpaiDir, {
-      sessionId: input.sessionId,
-      prompt: input.prompt,
-      intent,
-      agents: suggestedAgents,
-      project: relatedProjects[0]?.name,
-      complexity: taskComplexity
-    })
+    withFallback(
+      () =>
+        createWorkItem(gpaiDir, {
+          sessionId: input.sessionId,
+          prompt: input.prompt,
+          intent,
+          agents: suggestedAgents,
+          project: relatedProjects[0]?.name,
+          complexity: taskComplexity
+        }),
+      null,
+      (error) => logBeforeAgentError(gpaiDir, 'create-work-item', error)
+    )
 
     const relevantMemory = retrieveRelevantMemory(gpaiDir, input.prompt, intent)
     const preferenceSummary = buildPreferenceSummary(
@@ -1444,16 +1505,25 @@ export async function handleBeforeAgent(input: BeforeAgentInput): Promise<Before
       implicitGoalAdded
     )
 
-    const systemInstructions = generateSystemInstructions(suggestedAgents, intent, preferenceSummary)
-    const modifiedPrompt = buildModifiedPrompt(
+    const systemInstructions = withFallback(
+      () => generateSystemInstructions(suggestedAgents, intent, preferenceSummary),
+      '',
+      (error) => logBeforeAgentError(gpaiDir, 'system-instructions', error)
+    )
+    const modifiedPrompt = withFallback(
+      () =>
+        buildModifiedPrompt(
+          input.prompt,
+          suggestedAgents,
+          intent,
+          taskComplexity,
+          likelyToolCombo,
+          agentConstraints,
+          profile,
+          relatedProjects
+        ),
       input.prompt,
-      suggestedAgents,
-      intent,
-      taskComplexity,
-      likelyToolCombo,
-      agentConstraints,
-      profile,
-      relatedProjects
+      (error) => logBeforeAgentError(gpaiDir, 'modified-prompt', error)
     )
 
     return {
@@ -1462,7 +1532,8 @@ export async function handleBeforeAgent(input: BeforeAgentInput): Promise<Before
       suggestedAgents,
       systemInstructions
     }
-  } catch {
+  } catch (error) {
+    logBeforeAgentError(gpaiDir, 'fatal', error)
     return {
       modifiedPrompt: input.prompt,
       injectedContext: '',

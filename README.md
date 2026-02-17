@@ -186,12 +186,29 @@ This repository provides a minimal project-level prompt file:
 - `/Users/liyanzhao/All-new/project/GPAI/.cursorrules`
 
 What it does:
-- Runs `gpai_auto_pipeline` in two stages (pre-injection + post-learning).
+- Runs `GPAI.gpai_auto_pipeline` in two stages (pre-injection + post-learning).
 - Keeps behavior project-scoped (not global).
+- Adds a hard constraint: if MCP tools are available, do not finish a turn before pre + post pipeline calls.
+- Prefers tool name `GPAI.gpai_auto_pipeline` (fallback: `gpai_auto_pipeline` if host does not expose prefixed names).
+- If tools are unavailable in current session, report `GPAI MCP tools unavailable` and stop (no substitution with shell/test commands).
 
 Boundary:
 - `.cursorrules` is project prompt only.
 - Gemini CLI hooks still run through `dist/hooks/runner.js`.
+
+Quick verification (did Antigravity really call GPAI MCP tools?):
+```bash
+LATEST_LOG="$(
+  (ls -1t ~/.gpai/data/logs/mcp-tools-*.jsonl 2>/dev/null || true)
+  (ls -1t ./.gpai/data/logs/mcp-tools-*.jsonl 2>/dev/null || true)
+  (ls -1t /tmp/gpai-mcp-tools-*.jsonl 2>/dev/null || true)
+  | head -n 1
+)"
+[ -n "$LATEST_LOG" ] && tail -n 50 "$LATEST_LOG" || echo "No mcp-tools log found"
+```
+Expected for one turn:
+- `tool=gpai_auto_pipeline, phase=start`
+- `tool=gpai_auto_pipeline, phase=done`
 
 If you changed extension code, rebuild + reinstall before retrying in Antigravity:
 ```bash

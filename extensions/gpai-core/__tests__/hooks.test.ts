@@ -188,6 +188,26 @@ describe('GPAI Hooks', () => {
       expect(created?.project).toBeTruthy()
     })
 
+    it('should keep context-aware selection when work persistence fails', async () => {
+      const workDir = workRoot()
+      const originalMode = fs.statSync(workDir).mode & 0o777
+
+      fs.chmodSync(workDir, 0o555)
+      try {
+        const result = await handleBeforeAgent({
+          prompt: 'Analyze the security of this code with context awareness',
+          sessionId: 'before-agent-work-readonly-session',
+          conversationHistory: []
+        })
+
+        expect(result.suggestedAgents.length).toBeGreaterThan(0)
+        expect(result.modifiedPrompt).toContain('System Guidance')
+        expect(result.systemInstructions).toContain('Task Type:')
+      } finally {
+        fs.chmodSync(workDir, originalMode)
+      }
+    })
+
     it('should update TELOS fields from explicit prompt signals', async () => {
       const sessionId = 'before-agent-telos-update-session'
       const beforeProfile = readProfile()

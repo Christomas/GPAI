@@ -32,6 +32,9 @@ const SERVER_INFO = {
   version: '1.0.0'
 }
 
+const fs = require('fs') as typeof import('fs')
+const path = require('path') as typeof import('path')
+
 type HookEvent = 'SessionStart' | 'BeforeAgent' | 'BeforeTool' | 'AfterTool' | 'AfterAgent' | 'PreCompress'
 
 const EXPOSED_TOOLS = [
@@ -182,6 +185,84 @@ const EXPOSED_TOOLS = [
 let readBuffer = Buffer.alloc(0)
 let initialized = false
 let outputMode: 'framed' | 'raw' = 'framed'
+
+function errorMessage(value: unknown): string {
+  if (value instanceof Error) {
+    return value.message
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function resolveGpaiDir(): string {
+  return process.env.GPAI_DIR || path.join(process.env.HOME || process.cwd(), '.gpai')
+}
+
+function tryAppendLog(filePath: string, payload: Record<string, unknown>): boolean {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.appendFileSync(filePath, `${JSON.stringify(payload)}\n`)
+    return true
+  } catch (error) {
+    if (process.env.GPAI_MCP_LOG_DEBUG === '1') {
+      const message = error instanceof Error ? error.message : 'unknown error'
+      process.stderr.write(`[gpai-mcp-log] failed: ${filePath} | ${message}\n`)
+    }
+    return false
+  }
+}
+
+function appendMcpLog(record: Record<string, unknown>): void {
+  const date = new Date().toISOString().slice(0, 10)
+  const payload = {
+    timestamp: new Date().toISOString(),
+    ...record
+  }
+
+  const gpaiPrimary = path.join(resolveGpaiDir(), 'data/logs', `mcp-tools-${date}.jsonl`)
+  if (tryAppendLog(gpaiPrimary, payload)) {
+    return
+  }
+
+  const cwdFallback = path.join(process.cwd(), '.gpai/data/logs', `mcp-tools-${date}.jsonl`)
+  if (cwdFallback !== gpaiPrimary && tryAppendLog(cwdFallback, payload)) {
+    return
+  }
+
+  // Last-resort fallback for sandboxed environments where ~/.gpai is not writable.
+  tryAppendLog(path.join('/tmp', `gpai-mcp-tools-${date}.jsonl`), payload)
+}
+
+appendMcpLog({
+  category: 'mcp-runtime',
+  phase: 'startup',
+  pid: process.pid,
+  cwd: process.cwd(),
+  gpaiDir: resolveGpaiDir()
+})
+
+process.on('uncaughtException', (error) => {
+  appendMcpLog({
+    category: 'mcp-runtime',
+    phase: 'uncaughtException',
+    message: errorMessage(error),
+    stack: error instanceof Error ? error.stack : undefined
+  })
+})
+
+process.on('unhandledRejection', (reason) => {
+  appendMcpLog({
+    category: 'mcp-runtime',
+    phase: 'unhandledRejection',
+    message: errorMessage(reason)
+  })
+})
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
@@ -442,6 +523,11 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
   const explicitTools = getStringArray(args, ['toolsUsed', 'tools_used'])
   const explicitExecutionTime = getNumber(args, ['executionTime', 'execution_time'], -1)
   const modelCalls = getNumber(args, ['modelCalls', 'model_calls'])
+  const runSessionStart = getBoolean(args, ['runSessionStart', 'run_session_start'], true) ?? true
+  const runBeforeAgent = getBoolean(args, ['runBeforeAgent', 'run_before_agent'], true) ?? true
+  const runToolStages = getBoolean(args, ['runToolStages', 'run_tool_stages'], true) ?? true
+  const runAfterAgent = getBoolean(args, ['runAfterAgent', 'run_after_agent'], true) ?? true
+  const runPreCompress = getBoolean(args, ['runPreCompress', 'run_precompress'], true) ?? true
 
   const output: Record<string, unknown> = {
     sessionId,
@@ -449,7 +535,21 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
     pipeline: 'SessionStart -> BeforeAgent -> (BeforeTool/AfterTool)* -> AfterAgent -> PreCompress'
   }
 
-  const runSessionStart = getBoolean(args, ['runSessionStart', 'run_session_start'], true) ?? true
+  appendMcpLog({
+    category: 'mcp-tool',
+    tool: 'gpai_auto_pipeline',
+    phase: 'start',
+    sessionId,
+    hasPrompt: prompt.trim().length > 0,
+    hasResult: getString(args, ['result', 'prompt_response']).trim().length > 0,
+    toolExecutionCount: toolExecutions.length,
+    runSessionStart,
+    runBeforeAgent,
+    runToolStages,
+    runAfterAgent,
+    runPreCompress
+  })
+
   if (runSessionStart) {
     const sessionStart = await runHook('SessionStart', {
       sessionId,
@@ -463,7 +563,6 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
     }
   }
 
-  const runBeforeAgent = getBoolean(args, ['runBeforeAgent', 'run_before_agent'], true) ?? true
   if (runBeforeAgent) {
     const beforeAgent = await runHook('BeforeAgent', {
       prompt,
@@ -478,7 +577,6 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
     }
   }
 
-  const runToolStages = getBoolean(args, ['runToolStages', 'run_tool_stages'], true) ?? true
   const toolResults: Array<Record<string, unknown>> = []
   const allowedTools: string[] = []
   let deniedByBlock = 0
@@ -541,7 +639,6 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
     output.toolStages = toolResults
   }
 
-  const runAfterAgent = getBoolean(args, ['runAfterAgent', 'run_after_agent'], true) ?? true
   const resultText = getString(args, ['result', 'prompt_response'])
 
   if (runAfterAgent) {
@@ -577,7 +674,6 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
     }
   }
 
-  const runPreCompress = getBoolean(args, ['runPreCompress', 'run_precompress'], true) ?? true
   if (runPreCompress) {
     const forcePreCompress = getBoolean(args, ['forcePreCompress', 'force_precompress'], false) ?? false
     const tokenUsage = getNumber(args, ['tokenUsage', 'token_usage'])
@@ -616,6 +712,14 @@ async function runAutoPipeline(args: Record<string, unknown>): Promise<Record<st
     ranToolStages: runToolStages
   }
 
+  appendMcpLog({
+    category: 'mcp-tool',
+    tool: 'gpai_auto_pipeline',
+    phase: 'done',
+    sessionId,
+    summary: output.summary
+  })
+
   return output
 }
 
@@ -643,6 +747,11 @@ function respondToolOutput(id: JsonRpcId, payload: Record<string, unknown>): voi
 
 function handleToolInvocation(id: JsonRpcId, name: string, args: Record<string, unknown>): void {
   if (name === 'gpai_health') {
+    appendMcpLog({
+      category: 'mcp-tool',
+      tool: 'gpai_health',
+      phase: 'done'
+    })
     const echo = typeof args.echo === 'string' ? args.echo : ''
     respondToolOutput(id, {
       ok: true,
@@ -663,15 +772,34 @@ function handleToolInvocation(id: JsonRpcId, name: string, args: Record<string, 
       )
       return
     }
+    appendMcpLog({
+      category: 'mcp-tool',
+      tool: 'gpai_run_hook',
+      phase: 'start',
+      event
+    })
     const payload = asRecord(args.payload)
     runHook(event, payload)
       .then((result) => {
+        appendMcpLog({
+          category: 'mcp-tool',
+          tool: 'gpai_run_hook',
+          phase: 'done',
+          event
+        })
         respondToolOutput(id, {
           event,
           result
         })
       })
       .catch((error: Error) => {
+        appendMcpLog({
+          category: 'mcp-tool',
+          tool: 'gpai_run_hook',
+          phase: 'error',
+          event,
+          message: error.message || 'Failed to run GPAI hook.'
+        })
         respondError(id, -32000, error.message || 'Failed to run GPAI hook.')
       })
     return
@@ -683,6 +811,13 @@ function handleToolInvocation(id: JsonRpcId, name: string, args: Record<string, 
         respondToolOutput(id, result)
       })
       .catch((error: Error) => {
+        appendMcpLog({
+          category: 'mcp-tool',
+          tool: 'gpai_auto_pipeline',
+          phase: 'error',
+          sessionId: getString(args, ['sessionId', 'session_id'], 'mcp-session'),
+          message: error.message || 'Failed to run GPAI auto pipeline.'
+        })
         respondError(id, -32000, error.message || 'Failed to run GPAI auto pipeline.')
       })
     return

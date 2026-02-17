@@ -1284,6 +1284,7 @@ grep -o '"event":"[^"]*"' ~/.gpai/data/logs/hooks-$(date +%F).jsonl | sort | uni
 - `.cursorrules` 更简洁，适合项目级默认行为。
 - `Workflows` 适合手动触发，不会强制污染全局规则。
 - 若你环境里 `Rules` 与 Gemini CLI 共用，请避免把自动流水线策略放进 `Rules`。
+- 可通过 `~/.gpai/data/logs/mcp-tools-YYYY-MM-DD.jsonl` 验证是否真的触发了 GPAI MCP 流水线。
 
 #### **8. Antigravity 项目级提示词（.cursorrules）**
 
@@ -1294,7 +1295,25 @@ grep -o '"event":"[^"]*"' ~/.gpai/data/logs/hooks-$(date +%F).jsonl | sort | uni
 
 说明：
 - `.cursorrules` 已内置“前置注入 + 后置学习”两阶段最小策略。
+- 工具名优先使用 `GPAI.gpai_auto_pipeline`（宿主不支持前缀时回落到 `gpai_auto_pipeline`）。
+- 若会话中工具不可见，应直接输出 `GPAI MCP tools unavailable` 并停止，不用测试脚本/文件浏览替代。
 - 该机制与 Gemini CLI Hook、Antigravity Workflow 互补，不互相替代。
+
+快速自检：
+
+```bash
+LATEST_LOG="$(
+  (ls -1t ~/.gpai/data/logs/mcp-tools-*.jsonl 2>/dev/null || true)
+  (ls -1t ./.gpai/data/logs/mcp-tools-*.jsonl 2>/dev/null || true)
+  (ls -1t /tmp/gpai-mcp-tools-*.jsonl 2>/dev/null || true)
+  | head -n 1
+)"
+[ -n "$LATEST_LOG" ] && tail -n 50 "$LATEST_LOG" || echo "No mcp-tools log found"
+```
+
+期望看到同一轮至少两条记录：
+- `tool=gpai_auto_pipeline, phase=start`
+- `tool=gpai_auto_pipeline, phase=done`
 
 ---
 
